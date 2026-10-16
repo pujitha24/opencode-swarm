@@ -1,5 +1,17 @@
 # Changelog
 
+## [7.197.4](https://github.com/ZaxbyHub/opencode-swarm/compare/v7.197.3...v7.197.4) (2026-10-16)
+
+
+### Bug Fixes
+
+* **agents:** derive task-route swarm id by length delta so underscore agents keep fallback ([ffd6004](https://github.com/ZaxbyHub/opencode-swarm/commit/ffd60048843d2d70fe673c84c21ce1bb85c21482))
+* **agents:** derive task-route swarm id by length delta so underscore agents keep fallback (closes [#2960](https://github.com/ZaxbyHub/opencode-swarm/issues/2960)) ([b4d874d](https://github.com/ZaxbyHub/opencode-swarm/commit/b4d874d2b5244ea963b66b57da9512999d4da59d))
+* **agents:** fall to the default swarm when the sliced swarm id is schema-invalid ([ddf13a3](https://github.com/ZaxbyHub/opencode-swarm/commit/ddf13a328728fed0c9b8400beabf8e1bf3f48c73))
+* **agents:** guard the swarm-id derivation so only a real &lt;swarmId&gt;_&lt;role&gt; prefix is sliced ([af10024](https://github.com/ZaxbyHub/opencode-swarm/commit/af100240b298573e1d953881f00910b1bcb59b13))
+* **sandbox:** add recursive cleanup and ro-bind tempRoot to bubblewrap probe ([1977394](https://github.com/ZaxbyHub/opencode-swarm/commit/1977394f3b12efce9f6cafee0edd3edc360e931c))
+* **sandbox:** add recursive temp cleanup and ro-bind tempRoot to bubblewrap probe ([29722d2](https://github.com/ZaxbyHub/opencode-swarm/commit/29722d22b495e8a7c42d266c9524704af4a394b3))
+
 ## [7.197.3](https://github.com/ZaxbyHub/opencode-swarm/compare/v7.197.2...v7.197.3) (2026-10-15)
 
 
