@@ -192,32 +192,66 @@ export type EphemeralTeardownVerification =
 			reason: string;
 	  };
 
+type SessionExistence = 'alive' | 'gone' | 'unreadable';
+
 /**
- * Bounded existence check via `session.get`. `get` throwing (session-gone
- * errors surface as rejections on the SDK surface) or returning an empty body
- * both mean the session is gone (mirrors the reason-forwarding resolver
- * precedent in `src/hooks/pr-workflow-session-resolver.ts`).
+ * Rejection codes/names that mean the host could not be reached or answered
+ * (transport-class), as opposed to the host reporting "no such session".
+ */
+export const TRANSIENT_TRANSPORT_ERROR_CODES: ReadonlySet<string> = new Set([
+	'ECONNRESET',
+	'ECONNREFUSED',
+	'EAI_AGAIN',
+	'ETIMEDOUT',
+	'ENOTFOUND',
+	'EPIPE',
+	'UND_ERR_SOCKET',
+]);
+
+/**
+ * True for transport-class failures: a `TypeError` (what whatwg `fetch`
+ * throws on network failure), an `AbortError`, or an error whose `code` is in
+ * {@link TRANSIENT_TRANSPORT_ERROR_CODES}. Anything else is not transport.
+ */
+export function isTransientTransportError(err: unknown): boolean {
+	if (err instanceof TypeError) return true;
+	if (typeof err !== 'object' || err === null) return false;
+	const { code, name } = err as { code?: unknown; name?: unknown };
+	if (name === 'AbortError') return true;
+	return typeof code === 'string' && TRANSIENT_TRANSPORT_ERROR_CODES.has(code);
+}
+
+/**
+ * Bounded existence check via `session.get`, three-valued so an unproven
+ * death is never reported as gone. An empty body means `gone` (under the SDK's
+ * default `throwOnError: false`, session-gone surfaces through the body, not a
+ * rejection). A rejection that is the locally constructed verify deadline
+ * (matched by identity) or a transport-class failure means `unreadable`; any
+ * other rejection is still read as `gone` for hosts that throw on 404.
  */
 async function sessionExists(
 	session: EphemeralSessionLifecycle,
 	sessionId: string,
 	verifyTimeoutMs: number,
-): Promise<boolean> {
-	if (typeof session.get !== 'function') return true; // cannot disprove → treat as alive
+): Promise<SessionExistence> {
+	if (typeof session.get !== 'function') return 'alive'; // cannot disprove → treat as alive
+	const verifyTimeoutError = new Error(
+		`ephemeral session verify timed out after ${verifyTimeoutMs}ms`,
+	);
 	try {
 		const result = await withTimeout(
 			session.get({ path: { id: sessionId } }),
 			verifyTimeoutMs,
-			new Error(
-				`ephemeral session verify timed out after ${verifyTimeoutMs}ms`,
-			),
+			verifyTimeoutError,
 		);
 		const body = (result as { data?: unknown } | undefined)?.data;
-		if (body === undefined || body === null) return false;
-		return true;
-	} catch {
-		// A rejected get is how the host reports "no such session".
-		return false;
+		if (body === undefined || body === null) return 'gone';
+		return 'alive';
+	} catch (err) {
+		if (err === verifyTimeoutError || isTransientTransportError(err)) {
+			return 'unreadable';
+		}
+		return 'gone';
 	}
 }
 
@@ -260,12 +294,24 @@ export async function teardownEphemeralSessionVerified(
 			skipAbort: deleteAttempts > 0 ? true : options.skipAbort,
 		});
 		deleteAttempts += 1;
-		const alive = await _internals.sessionExists(
+		const existence = await _internals.sessionExists(
 			session,
 			sessionId,
 			verifyTimeoutMs,
 		);
-		if (!alive) return { ok: true, sessionId, attempts: deleteAttempts };
+		if (existence === 'gone') {
+			return { ok: true, sessionId, attempts: deleteAttempts };
+		}
+		if (existence === 'unreadable') {
+			// Verify timed out or the transport failed: death is unproven.
+			return {
+				ok: false,
+				sessionId,
+				attempts: deleteAttempts,
+				kind: 'ephemeral-session-teardown-unverified',
+				reason: 'verify-unreadable',
+			};
+		}
 		if (deleteAttempts >= attempts) {
 			return {
 				ok: false,

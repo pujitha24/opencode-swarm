@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test';
 import {
 	type EphemeralSessionLifecycle,
+	isTransientTransportError,
 	teardownEphemeralSessionVerified,
 } from '../../../src/utils/ephemeral-session-teardown';
 
@@ -125,5 +126,77 @@ describe('teardownEphemeralSessionVerified (#2599)', () => {
 		if (result.ok) expect(result.attempts).toBe(2);
 		expect(lifecycle.calls.filter((c) => c === 'abort')).toHaveLength(1);
 		expect(lifecycle.calls.filter((c) => c === 'delete')).toHaveLength(2);
+	});
+
+	describe('verify-unreadable (timeout / transport are not proof of death)', () => {
+		test('get that never settles + tiny verifyTimeoutMs → verify-unreadable', async () => {
+			const lifecycle = fakeLifecycle({ getImpl: () => new Promise(() => {}) });
+			const result = await teardownEphemeralSessionVerified(
+				lifecycle,
+				'ses-1',
+				{
+					verifyTimeoutMs: 25,
+				},
+			);
+			expect(result).toEqual({
+				ok: false,
+				sessionId: 'ses-1',
+				attempts: 1,
+				kind: 'ephemeral-session-teardown-unverified',
+				reason: 'verify-unreadable',
+			});
+		});
+
+		const transportCases: Array<[string, () => Error]> = [
+			['TypeError fetch failed', () => new TypeError('fetch failed')],
+			...[
+				'ECONNRESET',
+				'ECONNREFUSED',
+				'EAI_AGAIN',
+				'ETIMEDOUT',
+				'ENOTFOUND',
+				'EPIPE',
+				'UND_ERR_SOCKET',
+			].map((code): [string, () => Error] => [
+				code,
+				() => Object.assign(new Error(code), { code }),
+			]),
+			[
+				'AbortError',
+				() => Object.assign(new Error('aborted'), { name: 'AbortError' }),
+			],
+		];
+		for (const [label, make] of transportCases) {
+			test(`transport rejection ${label} → verify-unreadable`, async () => {
+				const lifecycle = fakeLifecycle({
+					getImpl: async () => {
+						throw make();
+					},
+				});
+				const result = await teardownEphemeralSessionVerified(
+					lifecycle,
+					'ses-1',
+				);
+				expect(result.ok).toBe(false);
+				if (!result.ok) {
+					expect(result.kind).toBe('ephemeral-session-teardown-unverified');
+					expect(result.reason).toBe('verify-unreadable');
+				}
+			});
+		}
+
+		test('isTransientTransportError boundary', () => {
+			expect(isTransientTransportError(new Error('no such session'))).toBe(
+				false,
+			);
+			expect(isTransientTransportError('ECONNRESET')).toBe(false);
+			expect(isTransientTransportError(null)).toBe(false);
+			expect(isTransientTransportError(undefined)).toBe(false);
+			expect(isTransientTransportError({ error: { name: 'NotFound' } })).toBe(
+				false,
+			);
+			expect(isTransientTransportError({ code: 'ENOENT' })).toBe(false);
+			expect(isTransientTransportError({ code: 'EPIPE' })).toBe(true);
+		});
 	});
 });
