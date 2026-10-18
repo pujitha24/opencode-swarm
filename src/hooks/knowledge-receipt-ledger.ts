@@ -2928,9 +2928,22 @@ export async function commitEmptyRetrieval(
 					existing.task_id !== input.task_id ||
 					existing.grace_days !== graceDays
 				) {
+					// A semantic, permanent conflict — not a retryable store failure.
+					const axis =
+						existing.task_id !== input.task_id
+							? 'task_id'
+							: existing.phase !== input.phase
+								? 'phase'
+								: 'grace_days';
+					const code =
+						axis === 'task_id'
+							? 'wrong_task'
+							: axis === 'phase'
+								? 'wrong_phase'
+								: 'duplicate_conflicting_terminal';
 					throw new ReceiptStoreError(
-						'store_unavailable',
-						`conflicting immutable empty retrieval for ${input.trace_id}/${input.session_id}`,
+						code,
+						`conflicting immutable empty retrieval for ${input.trace_id}/${input.session_id}: recorded ${axis} differs from filed`,
 					);
 				}
 				if (!existing.terminal_event_id) {

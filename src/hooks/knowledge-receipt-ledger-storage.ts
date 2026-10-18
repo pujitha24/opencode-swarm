@@ -39,7 +39,11 @@ export interface ReceiptLedgerPaths {
 export type ReceiptStoreErrorCode =
 	| 'lock_timeout'
 	| 'store_unavailable'
-	| 'store_corrupt';
+	| 'store_corrupt'
+	// Permanent validation-class conflicts (never retry-inviting store failures).
+	| 'wrong_phase'
+	| 'wrong_task'
+	| 'duplicate_conflicting_terminal';
 
 export class ReceiptStoreError extends Error {
 	constructor(
